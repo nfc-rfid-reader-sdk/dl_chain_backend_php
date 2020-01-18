@@ -1,0 +1,3 @@
+[submodule "dl_tools"]
+	path = dl_tools
+	url = https://git.d-logic.net/sw-php/dl_tools.git
