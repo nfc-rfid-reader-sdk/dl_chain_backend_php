@@ -47,12 +47,24 @@ if (!DEBUG) {
 }
 
 $client_api_key = strtoupper($client_api_key);
+checkApiKey($client_api_key);
+checkHex($certificate);
+checkHex($public_key);
+checkDateString($date_from);
+checkDateString($date_to);
+
+if($order != "ascending" && $order != "descending")
+{
+    die("100;Order Parameters are Wrong.");
+}
+checkNumber($limit);
+
 $certificate_bin = hex2bin($certificate);
 $public_key_bin = hex2bin($public_key);
 
 $table_name = "blockchain";
 
-checkApiKey($client_api_key);
+
 
 $config = parse_ini_file('db_config.ini'); 
 // Create connection
