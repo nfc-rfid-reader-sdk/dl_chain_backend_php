@@ -55,31 +55,7 @@ checkHex($transaction_block);
 checkHex($sha2_digest);
 checkHex($card_digital_signature);
 
-$transaction_version_hex = substr($transaction_block, 0, 4);
-$transaction_version = unpack('Svalue', hex2bin($transaction_version_hex))['value'];
-
-$receiver_public_key = substr($transaction_block, 4, 130);
-$sender_public_key = substr($transaction_block, 134, 130);
-$amount_hex = substr($transaction_block, 264, 16);
-$sha2_digest = substr($transaction_block, 280, 64);
-$transaction_block_len=strlen($transaction_block);
-$card_digital_signature = substr($transaction_block, 344, $transaction_block_len);
-//information for verify when extracted
-
-//$receiver_public_key = "0476ee5c36cc9e4b8db96b7161a7be4147eb568e0c1907e1d4e2e5bcd93c352f5f488b7c8f4851ad16d1c4832ee50657d2e971359a53d1c35e54b3c55d7906a9b2";
-//$sender_public_key = "04150de5a994932eaab1059bc9964aeceb7677b7892ba523ceada2c13f812999d8eab7e749684ecd15204a170d093fe50b6117c161d92bcdeff89c5d1b291b9283";
-$transaction_amount = unpack('Svalue', hex2bin($amount_hex))['value'];
-
-$cash_back_amount = 0;
-$transaction_fee = 0;
-$aki=1;
-//dummy data digest for test
-$data_digest = strtoupper("e7e6782229748b823671eb9e3cc30ea3c52bc19f0c79915961d76180f6465a20");
-$authority_digital_signature = strtoupper("e7e6782229748b823671eb9e3cc30ea3c52bc19f0c79915961d76180f6465a20");
-
 $table_name = "blockchain";
-
-
 
 $config = parse_ini_file('db_config.ini'); 
 // Create connection
@@ -92,7 +68,7 @@ if ($conn->connect_error) {
     die("SC50;Connection failed: " . $conn->connect_error);
 } 
 
-$sql = "SELECT * FROM `api_key`";
+$sql = "SELECT api_key FROM `api_key`";
 $result = $conn->query($sql);
 if ($result == false) {
     echo("SC50;Connection failed: " . $conn->error);
@@ -109,11 +85,102 @@ if ($client_api_key != $api_key) {
     die("SC50;Wrong API Key");
 }
 
-$sql = "INSERT INTO `$table_name` (TRANSACTION_BLOCK, RECEIVER_PUBLIC_KEY, 
-    SENDER_PUBLIC_KEY, TRANSACTION_AMOUNT, CASH_BACK_AMOUNT,
-    TRANSACTION_FEE, AKI,
-    DATA_DIGEST, AUTHORITY_DIGITAL_SIGNATURE) 
-    VALUES (X'$transaction_block', X'$receiver_public_key',
+
+$transaction_version_hex = substr($transaction_block, 0, 4);
+$transaction_version = unpack('Svalue', hex2bin($transaction_version_hex))['value'];
+
+$receiver_public_key = substr($transaction_block, 4, 130);
+$sender_public_key = substr($transaction_block, 134, 130);
+$amount_hex = substr($transaction_block, 264, 16);
+$sha2_digest = substr($transaction_block, 280, 64);
+$transaction_block_len=strlen($transaction_block);
+$card_digital_signature = substr($transaction_block, 344, $transaction_block_len);
+
+//checking digest
+$transaction_before_digest = substr($transaction_block, 0, 280);
+$transaction_before_digest_bin = hex2bin($transaction_before_digest);
+$calculated_digest = hash('sha256', $transaction_before_digest_bin);
+if($sha2_digest != $calculated_digest)
+{
+    die("SC70;Wrong Digest.");
+}
+
+//checking signature
+$pub_key_binary = hex2bin($sender_public_key);
+dl_ecc_pub_key_bin_to_pem($pub_key_binary, $pub_key_pem);
+$public_key = openssl_get_publickey($pub_key_pem);
+$result = dl_sig_verify (hex2bin($transaction_before_digest), hex2bin($card_digital_signature), $public_key, $status_msg);
+if($result == false)
+{
+    die("SC70;". $status_msg);
+}
+
+
+//information for verify when extracted
+
+//$receiver_public_key = "0476ee5c36cc9e4b8db96b7161a7be4147eb568e0c1907e1d4e2e5bcd93c352f5f488b7c8f4851ad16d1c4832ee50657d2e971359a53d1c35e54b3c55d7906a9b2";
+//$sender_public_key = "04150de5a994932eaab1059bc9964aeceb7677b7892ba523ceada2c13f812999d8eab7e749684ecd15204a170d093fe50b6117c161d92bcdeff89c5d1b291b9283";
+$transaction_amount = unpack('Qvalue', hex2bin($amount_hex))['value'];
+
+$cash_back_amount = 0;
+$transaction_fee = 0;
+$aki=1;
+//dummy data digest for test
+$data_digest = strtoupper("e7e6782229748b823671eb9e3cc30ea3c52bc19f0c79915961d76180f6465a20");
+$authority_digital_signature = strtoupper("e7e6782229748b823671eb9e3cc30ea3c52bc19f0c79915961d76180f6465a20");
+
+$sql = "SELECT block_id, transaction_block, date_time, transaction_version, receiver_public_key, 
+    sender_public_key, transaction_amount, cash_back_amount,
+    transaction_fee, aki, data_digest, authority_digital_signature
+    FROM `$table_name` ORDER BY block_id DESC LIMIT 1;";
+$result = $conn->query($sql);
+if ($result->num_rows < 1) {
+    die("SC50;There is no block to chain with.");
+}
+
+$array = mysqli_fetch_array($result);
+
+//$array = mysql_fetch_array($result);
+if ($array == null) {
+    $conn->close();
+    die("SC50;Connection failed. Can not load last block.");
+}
+
+/*
+//array of previous block
+$array["block_id"] . $array["transaction_block"] . 
+$array["timestamp"] . $array["receiver_public_key"] . 
+$array["sender_public_key"] . $array["transaction_amount"] . 
+$array["cash_back_amount"] . $array["transaction_fee"] . 
+$array["aki"] . $array["data_digest"] . $array["authority_digital_signature"];
+*/
+$new_block = $array["block_id"] + 1;
+$date_time = date("Y-m-d H:i:s");
+$tbd = $array["data_digest"] . $array["authority_digital_signature"] . 
+    $new_block . $transaction_block . $date_time . $receiver_public_key .
+    $sender_public_key . $transaction_amount . $cash_back_amount . 
+    $transaction_fee . $aki;
+$data_digest = hash('sha3-256', $tbd);
+$private_key_authority_str = "-----BEGIN EC PRIVATE KEY-----\nMHQCAQEEIDTssOfMSIr3wvA4Da6TglvUv1kMt5YqaEv0z8bt+FwYoAcGBSuBBAAK\noUQDQgAEBeoXZ2KqEJoltDvhEEjgiOAY4CYLR+wPMHbMkCH6dn+WnKprqdXZy0TS\nBgwhztu+AWvsWJUXeiSYTeL7pXvn7w==\n-----END EC PRIVATE KEY-----";    
+$private_key_authority = openssl_get_privatekey($private_key_authority_str);
+$private_key_authority_details = openssl_pkey_get_details($private_key_authority);
+$public_key_authrity = openssl_get_publickey($private_key_authority_details['key']);
+
+$authority_digital_signature_bin = "";
+$signature="";
+$result = dl_sign($data_digest, $authority_digital_signature_bin, $private_key_authority, SHA3_256_ALG);
+
+$result = dl_sig_verify ($data_digest, $authority_digital_signature_bin, $public_key_authrity, $status_msg, true, SHA3_256_ALG);
+if($result == false)
+{
+    die("SC70;". $status_msg);
+} 
+$authority_digital_signature = bin2hex($authority_digital_signature_bin);
+
+$sql = "INSERT INTO `$table_name` (transaction_block, date_time, transaction_version, receiver_public_key, 
+    sender_public_key, transaction_amount, cash_back_amount,
+    transaction_fee, aki, data_digest, authority_digital_signature) 
+    VALUES (X'$transaction_block', '$date_time', '$transaction_version', X'$receiver_public_key',
     X'$sender_public_key', '$transaction_amount',
     '$cash_back_amount', '$transaction_fee',
     '$aki', X'$data_digest', X'$authority_digital_signature');";
