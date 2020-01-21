@@ -54,9 +54,6 @@ checkHex($certificate_receiver);
 checkHex($certificate_sender);
 checkHex($transaction_block);
 
-
-$table_name = "blockchain";
-
 $config = parse_ini_file('db_config.ini'); 
 // Create connection
 $conn = new mysqli(
@@ -67,6 +64,13 @@ $conn = new mysqli(
 if ($conn->connect_error) {
     die("SC50;Connection failed: " . $conn->connect_error);
 } 
+
+$blockchain_obj = new DlBlockChain;
+$blockchain_obj->conn = $conn;
+$blockchain_obj->table_name = "blockchain";
+$future_blockchain_obj = new DlBlockChain;
+$future_blockchain_obj->conn = $conn;
+$future_blockchain_obj->table_name = "blockchain";
 
 $sql = "SELECT api_key FROM `api_key`";
 $result = $conn->query($sql);
@@ -97,27 +101,33 @@ if($transaction_block_obj->sha2_digest_bin != $calculated_digest_bin)
 }
 
 //checking signature
-$result = checkTransactionBlock($transaction_block_obj);
+$result = $transaction_block_obj->checkTransactionBlock($transaction_block_obj);
 if($result == false)
 {
     die("SC70;". $status_msg);
 }
 
+$block_id = $blockchain_obj->getLastBlockID();
+$blockchain_obj->loadBlock($block_id);
+//$blockchain_obj->checkBlock();
 
+$future_blockchain_obj->block_id = $block_id+1;
+$future_blockchain_obj->transaction_block = $transaction_block;
+$future_blockchain_obj->date_time = date("Y-m-d H:i:s");
+$future_blockchain_obj->transaction_version = $transaction_block_obj->transaction_version;
+$future_blockchain_obj->receiver_public_key = $transaction_block_obj->receiver_public_key;
+$future_blockchain_obj->sender_public_key = $transaction_block_obj->sender_public_key;
+$future_blockchain_obj->transaction_amount = $transaction_block_obj->transaction_amount;
+$future_blockchain_obj->cash_back_amount = 0;
+$future_blockchain_obj->transaction_fee = 0;
+//folowing values are not need to be set
+$future_blockchain_obj->aki = 0;
+$future_blockchain_obj->block_digest = "";
+$future_blockchain_obj->authority_digital_signature = "";
 
-$sql = "INSERT INTO `$table_name` (transaction_block, date_time, transaction_version, receiver_public_key, 
-    sender_public_key, transaction_amount, cash_back_amount,
-    transaction_fee, aki, data_digest, authority_digital_signature) 
-    VALUES (X'$transaction_block', '$date_time', '$transaction_version', X'$receiver_public_key',
-    X'$sender_public_key', '$transaction_amount',
-    '$cash_back_amount', '$transaction_fee',
-    '$aki', X'$data_digest', X'$authority_digital_signature');";
-$result = $conn->query($sql);
-if ($result == false) {
-    echo("SC50;Connection failed: " . $conn->error);
-    $conn->close();
-    exit;
-}
+$future_blockchain_obj->signBlock($blockchain_obj->block_digest,
+    $blockchain_obj->authority_digital_signature);
+    
 
 echo "SC80;Data succesfully added to blockchain."
 ?>
