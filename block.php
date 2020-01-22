@@ -25,6 +25,7 @@ define('DEBUG', false);
 require 'dl_tools/dl_sql_tools.php';
 require 'dl_tools/dl_re_tools.php';
 require 'dl_tools/dl_sig_tools.php';
+require 'dl_tools/dl_blockchain.php';
 
 $date = new DateTime("2010-07-05T06:00:00Z");
 
@@ -53,8 +54,7 @@ checkHex($certificate_receiver);
 checkHex($certificate_sender);
 checkHex($transaction_block);
 
-
-$table_name = "blockchain";
+$transaction_block = strtolower($transaction_block);
 
 $config = parse_ini_file('db_config.ini'); 
 // Create connection
@@ -66,6 +66,13 @@ $conn = new mysqli(
 if ($conn->connect_error) {
     die("SC50;Connection failed: " . $conn->connect_error);
 } 
+
+$blockchain_obj = new DlBlockChain;
+$blockchain_obj->conn = $conn;
+$blockchain_obj->table_name = "blockchain";
+$future_blockchain_obj = new DlBlockChain;
+$future_blockchain_obj->conn = $conn;
+$future_blockchain_obj->table_name = "blockchain";
 
 $sql = "SELECT api_key FROM `api_key`";
 $result = $conn->query($sql);
@@ -85,107 +92,61 @@ if ($client_api_key != $api_key) {
 }
 
 
-$transaction_version_hex = substr($transaction_block, 0, 4);
-$transaction_version = unpack('Svalue', hex2bin($transaction_version_hex))['value'];
-
-$receiver_public_key = substr($transaction_block, 4, 130);
-$sender_public_key = substr($transaction_block, 134, 130);
-$amount_hex = substr($transaction_block, 264, 16);
-$sha2_digest = substr($transaction_block, 280, 64);
-$transaction_block_len=strlen($transaction_block);
-$card_digital_signature = substr($transaction_block, 344, $transaction_block_len);
+$transaction_block_obj = new TransactionBlockClass;
+$transaction_block_obj->getDataFromTransactionBlock($transaction_block);
 
 //checking digest
-$transaction_before_digest = substr($transaction_block, 0, 280);
-$transaction_before_digest_bin = hex2bin($transaction_before_digest);
-$calculated_digest = hash('sha256', $transaction_before_digest_bin);
-if( strtoupper($sha2_digest) != strtoupper($calculated_digest))
+$calculated_digest_bin = hash('sha256', $transaction_block_obj->transaction_before_digest_bin, true);
+if($transaction_block_obj->sha2_digest_bin != $calculated_digest_bin)
 {
     die("SC70;Wrong Digest.");
 }
 
 //checking signature
-$pub_key_binary = hex2bin($sender_public_key);
-dl_ecc_pub_key_bin_to_pem($pub_key_binary, $pub_key_pem);
-$public_key = openssl_get_publickey($pub_key_pem);
-$result = dl_sig_verify (hex2bin($transaction_before_digest), hex2bin($card_digital_signature), $public_key, $status_msg);
+$result = $transaction_block_obj->checkTransactionBlock($transaction_block_obj);
 if($result == false)
 {
     die("SC70;". $status_msg);
 }
 
-
-//information for verify when extracted
-
-//$receiver_public_key = "0476ee5c36cc9e4b8db96b7161a7be4147eb568e0c1907e1d4e2e5bcd93c352f5f488b7c8f4851ad16d1c4832ee50657d2e971359a53d1c35e54b3c55d7906a9b2";
-//$sender_public_key = "04150de5a994932eaab1059bc9964aeceb7677b7892ba523ceada2c13f812999d8eab7e749684ecd15204a170d093fe50b6117c161d92bcdeff89c5d1b291b9283";
-$transaction_amount = unpack('Qvalue', hex2bin($amount_hex))['value'];
-
-$cash_back_amount = 0;
-$transaction_fee = 0;
-$aki=1;
-
-$sql = "SELECT block_id, transaction_block, date_time, transaction_version, receiver_public_key, 
-    sender_public_key, transaction_amount, cash_back_amount,
-    transaction_fee, aki, block_digest, authority_digital_signature
-    FROM `$table_name` ORDER BY block_id DESC LIMIT 1;";
-$result = $conn->query($sql);
-if ($result->num_rows < 1) {
-    die("SC50;There is no block to chain with.");
+$result = $blockchain_obj->getLastBlockID();
+ /* //first block
+if($result == false)
+{
+    $blockchain_obj->writeFirstBlock();
 }
-
-$array = mysqli_fetch_array($result);
-
-//$array = mysql_fetch_array($result);
-if ($array == null) {
-    $conn->close();
-    die("SC50;Connection failed. Can not load last block.");
-}
-
-/*
-//array of previous block
-$array["block_id"] . $array["transaction_block"] . 
-$array["timestamp"] . $array["receiver_public_key"] . 
-$array["sender_public_key"] . $array["transaction_amount"] . 
-$array["cash_back_amount"] . $array["transaction_fee"] . 
-$array["aki"] . $array["block_digest"] . $array["authority_digital_signature"];
 */
-$new_block = $array["block_id"] + 1;
-$date_time = date("Y-m-d H:i:s");
-$tbd = $array["block_digest"] . $array["authority_digital_signature"] . 
-    $new_block . $transaction_block . $date_time . $receiver_public_key .
-    $sender_public_key . $transaction_amount . $cash_back_amount . 
-    $transaction_fee . $aki;
-$block_digest = hash('sha3-256', $tbd);
-$private_key_authority_str = "-----BEGIN EC PRIVATE KEY-----\nMHQCAQEEIDTssOfMSIr3wvA4Da6TglvUv1kMt5YqaEv0z8bt+FwYoAcGBSuBBAAK\noUQDQgAEBeoXZ2KqEJoltDvhEEjgiOAY4CYLR+wPMHbMkCH6dn+WnKprqdXZy0TS\nBgwhztu+AWvsWJUXeiSYTeL7pXvn7w==\n-----END EC PRIVATE KEY-----";    
-$private_key_authority = openssl_get_privatekey($private_key_authority_str);
-$private_key_authority_details = openssl_pkey_get_details($private_key_authority);
-$public_key_authrity = openssl_get_publickey($private_key_authority_details['key']);
 
-$authority_digital_signature_bin = "";
-$signature="";
-$result = dl_sign($block_digest, $authority_digital_signature_bin, $private_key_authority, SHA3_256_ALG);
-
-$result = dl_sig_verify ($block_digest, $authority_digital_signature_bin, $public_key_authrity, $status_msg, true, SHA3_256_ALG);
-if($result == false)
+$block_id = $result;
+$blockchain_obj->loadBlock($block_id);
+if($block_id != 0)
 {
-    die("SC70;". $status_msg);
-} 
-$authority_digital_signature = bin2hex($authority_digital_signature_bin);
-
-$sql = "INSERT INTO `$table_name` (transaction_block, date_time, transaction_version, receiver_public_key, 
-    sender_public_key, transaction_amount, cash_back_amount,
-    transaction_fee, aki, block_digest, authority_digital_signature) 
-    VALUES (X'$transaction_block', '$date_time', '$transaction_version', X'$receiver_public_key',
-    X'$sender_public_key', '$transaction_amount',
-    '$cash_back_amount', '$transaction_fee',
-    '$aki', X'$block_digest', X'$authority_digital_signature');";
-$result = $conn->query($sql);
-if ($result == false) {
-    echo("SC50;Connection failed: " . $conn->error);
-    $conn->close();
-    exit;
+    $result = $blockchain_obj->checkBlock();
+    if($result == false)
+    {
+        die("SC70;Last block not chained correctly. Can not chain new one.");
+    }    
 }
+
+
+$future_blockchain_obj->block_id = $block_id+1;
+$future_blockchain_obj->transaction_block = $transaction_block;
+$future_blockchain_obj->date_time = date("Y-m-d H:i:s");
+$future_blockchain_obj->transaction_version = $transaction_block_obj->transaction_version;
+$future_blockchain_obj->receiver_public_key = $transaction_block_obj->receiver_public_key;
+$future_blockchain_obj->sender_public_key = $transaction_block_obj->sender_public_key;
+$future_blockchain_obj->transaction_amount = $transaction_block_obj->transaction_amount;
+$future_blockchain_obj->cash_back_amount = 0;
+$future_blockchain_obj->transaction_fee = 0;
+//folowing values are not need to be set
+$future_blockchain_obj->aki = $future_blockchain_obj->AKI_CONST;
+$future_blockchain_obj->block_digest = "";
+$future_blockchain_obj->authority_digital_signature = "";
+
+$future_blockchain_obj->signBlock($blockchain_obj->block_digest,
+    $blockchain_obj->authority_digital_signature);
+    
+$future_blockchain_obj->writeBlock();
 
 echo "SC80;Data succesfully added to blockchain."
 ?>
