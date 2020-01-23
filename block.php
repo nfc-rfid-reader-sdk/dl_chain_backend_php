@@ -67,13 +67,6 @@ if ($conn->connect_error) {
     die("SC50;Connection failed: " . $conn->connect_error);
 } 
 
-$blockchain_obj = new DlBlockChain;
-$blockchain_obj->conn = $conn;
-$blockchain_obj->table_name = "blockchain";
-$future_blockchain_obj = new DlBlockChain;
-$future_blockchain_obj->conn = $conn;
-$future_blockchain_obj->table_name = "blockchain";
-
 $sql = "SELECT api_key FROM `api_key`";
 $result = $conn->query($sql);
 if ($result == false) {
@@ -109,44 +102,11 @@ if($result == false)
     die("SC70;". $status_msg);
 }
 
-$result = $blockchain_obj->getLastBlockID();
- /* //first block
-if($result == false)
-{
-    $blockchain_obj->writeFirstBlock();
-}
-*/
+$blockchain_obj = new DlBlockChain;
+$blockchain_obj->conn = $conn;
+$blockchain_obj->table_name = "blockchain";
 
-$block_id = $result;
-$blockchain_obj->loadBlock($block_id);
-if($block_id != 0)
-{
-    $result = $blockchain_obj->checkBlock();
-    if($result == false)
-    {
-        die("SC70;Last block not chained correctly. Can not chain new one.");
-    }    
-}
-
-
-$future_blockchain_obj->block_id = $block_id+1;
-$future_blockchain_obj->transaction_block = $transaction_block;
-$future_blockchain_obj->date_time = date("Y-m-d H:i:s");
-$future_blockchain_obj->transaction_version = $transaction_block_obj->transaction_version;
-$future_blockchain_obj->receiver_public_key = $transaction_block_obj->receiver_public_key;
-$future_blockchain_obj->sender_public_key = $transaction_block_obj->sender_public_key;
-$future_blockchain_obj->transaction_amount = $transaction_block_obj->transaction_amount;
-$future_blockchain_obj->cash_back_amount = 0;
-$future_blockchain_obj->transaction_fee = 0;
-//folowing values are not need to be set
-$future_blockchain_obj->aki = $future_blockchain_obj->AKI_CONST;
-$future_blockchain_obj->block_digest = "";
-$future_blockchain_obj->authority_digital_signature = "";
-
-$future_blockchain_obj->signBlock($blockchain_obj->block_digest,
-    $blockchain_obj->authority_digital_signature);
-    
-$future_blockchain_obj->writeBlock();
+$blockchain_obj->chainBlock($transaction_block_obj);
 
 echo "SC80;Data succesfully added to blockchain."
 ?>
