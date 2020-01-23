@@ -24,6 +24,8 @@ define('DEBUG', false);
 
 require 'dl_tools/dl_sql_tools.php';
 require 'dl_tools/dl_re_tools.php';
+require 'dl_tools/dl_sig_tools.php';
+require 'dl_tools/dl_blockchain.php';
 $date = new DateTime("2010-07-05T06:00:00Z");
 
 $date->setTimeZone(new DateTimeZone("Europe/Belgrade"));
@@ -64,8 +66,6 @@ $public_key_bin = hex2bin($public_key);
 
 $table_name = "blockchain";
 
-
-
 $config = parse_ini_file('db_config.ini'); 
 // Create connection
 $conn = new mysqli(
@@ -94,5 +94,53 @@ if ($client_api_key != $api_key) {
     die("SC50;Wrong API Key");
 }
 
-echo "0;100,5|2020-01-18 00:00:00||23,8|2020-01-18 10:23:50||23,8|2020-01-18 13:41:22"
+$blockchain_obj = new DlBlockChain;
+$blockchain_obj->conn = $conn;
+$blockchain_obj->table_name = $table_name;
+
+
+$sql = "SELECT block_id, date_time, transaction_amount,
+        receiver_public_key, sender_public_key
+        FROM `$table_name` where receiver_public_key = X'$public_key' OR 
+        sender_public_key = X'$public_key';";
+$result = $conn->query($sql);
+$rows_number = $result->num_rows;
+if ($rows_number < 1) {
+    die("SC50;Transactions not found.");
+}
+//$array = mysqli_fetch_assoc($result);
+while ($row = mysqli_fetch_assoc($result)) {
+    $transactions_arr[] = $row;
+}
+if ($transactions_arr == null) {
+    $this->conn->close();
+    die("SC50;Connection failed. Can not load last block.");
+}
+$transactions_str = "";
+$total_amount = 0;
+$public_key_bin = hex2bin($public_key);
+for($i=0;$i<$rows_number;$i++)
+{
+    $block_id=$transactions_arr[$i]["block_id"];
+    $result = $blockchain_obj->loadBlock($block_id);
+    $result = $blockchain_obj->checkBlock($block_id);
+    if($result == false)
+    {
+        die("SC70;Block of transaction data not chained correctly.");
+    } 
+    if($transactions_arr[$i]["receiver_public_key"] == $public_key_bin)
+    {
+        $total_amount += $transactions_arr[$i]["transaction_amount"];
+        $transactions_str .= "||" . $transactions_arr[$i]["transaction_amount"];
+    }
+    if($transactions_arr[$i]["sender_public_key"] == $public_key_bin)
+    {
+        $total_amount -= $transactions_arr[$i]["transaction_amount"];
+        $transactions_str .= "||" . "-" . $transactions_arr[$i]["transaction_amount"];
+    }
+    $transactions_str .=  "|" . $transactions_arr[$i]["date_time"];
+}
+//"0;100,5|2020-01-18 00:00:00||23,8|2020-01-18 10:23:50||23,8|2020-01-18 13:41:22";
+$transactions_str = "0;" . $total_amount . "|" . date("Y-m-d H:i:s") . $transactions_str;
+echo $transactions_str;
 ?>
