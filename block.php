@@ -48,9 +48,13 @@ if (!DEBUG) {
 }
 
 
+
 $client_api_key = strtoupper($client_api_key);
 checkApiKey($client_api_key);
-checkHex($certificate_receiver);
+if($certificate_receiver!="")
+{
+    checkHex($certificate_receiver);
+}
 checkHex($certificate_sender);
 checkHex($transaction_block);
 

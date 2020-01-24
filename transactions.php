@@ -59,7 +59,12 @@ if($order != "ascending" && $order != "descending")
 {
     die("100;Order Parameters are Wrong.");
 }
-checkNumber($limit);
+
+if($limit != "")
+{
+    checkNumber($limit);
+}
+
 
 $certificate_bin = hex2bin($certificate);
 $public_key_bin = hex2bin($public_key);
