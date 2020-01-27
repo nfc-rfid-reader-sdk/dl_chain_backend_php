@@ -110,6 +110,21 @@ $blockchain_obj = new DlBlockChain;
 $blockchain_obj->conn = $conn;
 $blockchain_obj->table_name = "blockchain";
 
+//check if Vendor exist
+$vendor=false;
+$test_cert_bin = hex2bin($certificate_sender);
+$test_cert_pem = der2pemCertificate($test_cert_bin);
+$parsedX509arr = openssl_x509_parse($test_cert_pem); // default param: , bool $shortnames = TRUE
+if (array_key_exists('subject', $parsedX509arr)) {
+    $subject = $parsedX509arr['subject'];
+    if (array_key_exists('OU', $subject)) {
+        if($subject['OU']!="")
+        {
+            $vendor = true;
+        }
+    }
+}
+
 $blockchain_obj->chainBlock($transaction_block_obj);
 
 echo "SC80;Data succesfully added to blockchain."
