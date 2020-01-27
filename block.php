@@ -125,6 +125,23 @@ if (array_key_exists('subject', $parsedX509arr)) {
     }
 }
 
+$amount = $blockchain_obj->checkBalance( $transaction_block_obj->sender_public_key);
+if($amount != 0 && $amount=="No Transaction Found")
+{
+    if($vendor == false)
+    {
+        die("SC60;Transactions not found. At least one transaction with deposit needed.");
+    }
+}
+
+if($vendor == false)
+{
+    if($transaction_block_obj->transaction_amount > $amount)
+    {
+        die("SC60;Not enought Credits.");
+    }
+}
+
 $blockchain_obj->chainBlock($transaction_block_obj);
 
 echo "SC80;Data succesfully added to blockchain."
